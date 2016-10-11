@@ -1,4 +1,5 @@
-(function (global) {
+/* eslint-disable*/
+(function(global) {
     'use strict';
 
     var slice = Array.prototype.slice,
@@ -8,9 +9,10 @@
 
     scrat.version = '0.3.11';
     scrat.options = {
-        prefix: '__SCRAT__',
-        cache: false,
-        hash: '',
+        prefix: '__PANGU__',
+        cache: true,
+        hash: 'test',
+        max_age: 31536000,
         timeout: 15, // seconds
         alias: {}, // key - name, value - id
         deps: {}, // key - id, value - name/id
@@ -26,15 +28,15 @@
      * Mix obj to scrat.options
      * @param {Object} obj
      */
-    proto.config = function (obj) {
+    proto.config = function(obj) {
         var options = scrat.options;
 
         debug('scrat.config', obj);
-        each(obj, function (value, key) {
+        each(obj, function(value, key) {
             var data = options[key],
                 t = type(data);
             if (t === 'object') {
-                each(value, function (v, k) {
+                each(value, function(v, k) {
                     data[k] = v;
                 });
             } else {
@@ -45,9 +47,9 @@
 
         // detect localStorage support and activate cache ability
         try {
-            if (options.hash !== localStorage.getItem('__SCRAT_HASH__')) {
+            if (options.hash !== localStorage.getItem('__PANGU_HASH__')) {
                 scrat.clean();
-                localStorage.setItem('__SCRAT_HASH__', options.hash);
+                localStorage.setItem('__PANGU_HASH__', options.hash);
             }
             options.cache = options.cache && !!options.hash;
         } catch (e) {
@@ -56,15 +58,15 @@
 
         // detect scrat=nocombo,nocache in location.search
         if (/\bscrat=([\w,]+)\b/.test(location.search)) {
-            each(RegExp.$1.split(','), function (o) {
+            each(RegExp.$1.split(','), function(o) {
                 switch (o) {
-                case 'nocache':
-                    scrat.clean();
-                    options.cache = false;
-                    break;
-                case 'nocombo':
-                    options.combo = false;
-                    break;
+                    case 'nocache':
+                        scrat.clean();
+                        options.cache = false;
+                        break;
+                    case 'nocombo':
+                        options.combo = false;
+                        break;
                 }
             });
         }
@@ -76,13 +78,13 @@
      * @param {string|string[]} names
      * @param {Function} [onload]
      */
-    proto.async = function (names, onload) {
+    proto.async = function(names, onload) {
         if (type(names) === 'string') names = [names];
         debug('scrat.async', 'require [' + names.join(', ') + ']');
 
-        var reactor = new scrat.Reactor(names, function () {
+        var reactor = new scrat.Reactor(names, function() {
             var args = [];
-            each(names, function (id) {
+            each(names, function(id) {
                 args.push(require(id));
             });
             if (onload) onload.apply(scrat, args);
@@ -97,9 +99,10 @@
      * @param {Function} factory
      * @param {boolean} [cache=true]
      */
-    proto.define = function (id, factory, cache) {
+    proto.define = function(id, factory, cache) {
         debug('scrat.define', '[' + id + ']');
         var options = scrat.options,
+            cid = scrat.alias(id),
             res = scrat.cache[id];
         if (res) {
             res.factory = factory;
@@ -110,9 +113,10 @@
                 factory: factory
             };
         }
-        if (options.cache && cache !== false) {
+        if (options.cache /*&& cache !== false*/) {
             try {
                 localStorage.setItem(options.prefix + id, factory.toString());
+                localStorage.setItem(options.prefix + id + '_ver', cid);
             } catch (e) {
                 options.cache = false;
             }
@@ -125,9 +129,10 @@
      * @param {string} css
      * @param {boolean} [parsing=true]
      */
-    proto.defineCSS = function (id, css, parsing) {
+    proto.defineCSS = function(id, css, parsing) {
         debug('scrat.defineCSS', '[' + id + ']');
         var options = scrat.options;
+        var cid = scrat.alias(id);
         scrat.cache[id] = {
             id: id,
             loaded: true,
@@ -137,6 +142,7 @@
         if (options.cache) {
             try {
                 localStorage.setItem(options.prefix + id, css);
+                localStorage.setItem(options.prefix + id + '_ver', cid);
             } catch (e) {
                 options.cache = false;
             }
@@ -148,17 +154,23 @@
      * @param {string} id
      * @returns {Object} module
      */
-    proto.get = function (id) {
+    proto.get = function(id) {
         /* jshint evil:true */
         debug('scrat.get', '[' + id + ']');
-        var options = scrat.options,
-            type = fileType(id),
+        var cid = scrat.alias(id),
+            options = scrat.options,
+            type = fileType(cid),
             res = scrat.cache[id],
-            raw;
+            raw = null;
         if (res) {
             return res;
         } else if (options.cache) {
-            raw = localStorage.getItem(options.prefix + id);
+            if (localStorage.getItem(options.prefix + id + '_ver') == cid) {
+                raw = localStorage.getItem(options.prefix + id);    
+            } else {
+                localStorage.removeItem(options.prefix + id);
+                localStorage.removeItem(options.prefix + id + '_ver');
+            }
             if (raw !== null) {
                 if (type === 'js') {
                     // Don't use eval or new Function in UC (9.7.6 ~ 9.8.5)
@@ -180,15 +192,15 @@
     /**
      * Clean module cache in localStorage
      */
-    proto.clean = function () {
+    proto.clean = function() {
         debug('scrat.clean');
         try {
-            each(localStorage, function (_, key) {
+            each(localStorage, function(_, key) {
                 if (~key.indexOf(scrat.options.prefix)) {
                     localStorage.removeItem(key);
                 }
             });
-            localStorage.removeItem('__SCRAT_HASH__');
+            localStorage.removeItem('__PANGU_HASH__');
         } catch (e) {}
     };
 
@@ -198,7 +210,7 @@
      * @param {string|Function} [alias] - set alias
      * @returns {string} name
      */
-    proto.alias = function (name, alias) {
+    proto.alias = function(name, alias) {
         var aliasMap = scrat.options.alias;
 
         if (arguments.length > 1) {
@@ -208,12 +220,12 @@
 
         while (aliasMap[name] && name !== aliasMap[name]) {
             switch (type(aliasMap[name])) {
-            case 'function':
-                name = aliasMap[name](name);
-                break;
-            case 'string':
-                name = aliasMap[name];
-                break;
+                case 'function':
+                    name = aliasMap[name](name);
+                    break;
+                case 'string':
+                    name = aliasMap[name];
+                    break;
             }
         }
         return name;
@@ -224,11 +236,14 @@
      * @param {string} url
      * @param {Function|Object} [onload|options]
      */
-    proto.load = function (url, options) {
+    proto.load = function(url, options) {
         if (type(options) === 'function') {
-            options = {onload: options};
+            options = {
+                onload: options
+            };
             if (type(arguments[2]) === 'function') options.onerror = arguments[2];
         }
+
         function onerror(e) {
             clearTimeout(tid);
             clearInterval(intId);
@@ -241,7 +256,7 @@
             isScript = t === 'js',
             isCss = t === 'css',
             isOldWebKit = +navigator.userAgent
-                .replace(/.*AppleWebKit\/(\d+)\..*/, '$1') < 536,
+            .replace(/.*AppleWebKit\/(\d+)\..*/, '$1') < 536,
 
             head = document.head,
             node = document.createElement(isScript ? 'script' : 'link'),
@@ -260,9 +275,9 @@
             }
             node.href = url;
         }
-        node.onload = node.onreadystatechange = function () {
+        node.onload = node.onreadystatechange = function() {
             if (node && (!node.readyState ||
-                /loaded|complete/.test(node.readyState))) {
+                    /loaded|complete/.test(node.readyState))) {
                 clearTimeout(tid);
                 clearInterval(intId);
                 node.onload = node.onreadystatechange = null;
@@ -281,7 +296,7 @@
             if (isOldWebKit || !supportOnload) {
                 debug('scrat.load', 'check css\'s loading status for compatible');
                 intTimer = 0;
-                intId = setInterval(function () {
+                intId = setInterval(function() {
                     if ((intTimer += 20) > options.timeout || !node) {
                         clearTimeout(tid);
                         clearInterval(intId);
@@ -300,7 +315,7 @@
         }
     };
 
-    proto.Reactor = function (names, callback) {
+    proto.Reactor = function(names, callback) {
         this.length = 0;
         this.depends = {};
         this.depended = {};
@@ -310,7 +325,7 @@
 
     var rproto = scrat.Reactor.prototype;
 
-    rproto.push = function () {
+    rproto.push = function() {
         var that = this,
             args = slice.call(arguments);
 
@@ -318,10 +333,10 @@
             if (--that.length === 0) that.callback();
         }
 
-        each(args, function (arg) {
+        each(args, function(arg) {
             var id = scrat.alias(arg),
                 type = fileType(id),
-                res = scrat.get(id);
+                res = scrat.get(arg);
 
             if (!res) {
                 res = scrat.cache[id] = {
@@ -332,7 +347,7 @@
             if (!res.onload) res.onload = [];
 
             that.depended[id] = 1;
-            that.push.apply(that, scrat.options.deps[id]);
+            that.push.apply(that, scrat.options.deps[arg]);
 
             if ((type === 'css' && !res.rawCSS && !res.parsed) ||
                 (type === 'js' && !res.factory && !res.exports)) {
@@ -347,9 +362,9 @@
 
     function makeOnload(deps) {
         deps = deps.slice();
-        return function (e) {
+        return function(e) {
             if (e) error(e);
-            each(deps, function (res) {
+            each(deps, function(res) {
                 if (!e) res.loaded = true;
                 while (res.onload && res.onload.length) {
                     var onload = res.onload.shift();
@@ -359,7 +374,7 @@
         };
     }
 
-    rproto.run = function () {
+    rproto.run = function() {
         var that = this,
             options = scrat.options,
             combo = options.combo,
@@ -369,19 +384,19 @@
         if (this.length === 0) return this.callback();
         debug('reactor.run', depends);
 
-        each(depends.unknown, function (res) {
-            scrat.load(that.genUrl(res.id), function () {
+        each(depends.unknown, function(res) {
+            scrat.load(that.genUrl(res.id), function() {
                 res.loaded = true;
             });
         });
 
         debug('reactor.run', 'combo: ' + combo);
 
-        function resourceCombo (resdeps) {
+        function resourceCombo(resdeps) {
             var urlLength = 0,
                 ids = [],
                 deps = [];
-            each(resdeps, function (res, i) {
+            each(resdeps, function(res, i) {
                 var onload;
                 if (urlLength + res.id.length < options.maxUrlLength) {
                     urlLength += res.id.length;
@@ -408,38 +423,39 @@
                 resourceCombo(depends.js || []);
             }
         } else {
-            each((depends.css || []).concat(depends.js || []), function (res) {
+            each((depends.css || []).concat(depends.js || []), function(res) {
                 var onload = makeOnload([res]);
                 scrat.load(that.genUrl(res.id), onload);
             });
         }
     };
 
-    rproto.genUrl = function (ids) {
+    rproto.genUrl = function(ids) {
         if (type(ids) === 'string') ids = [ids];
 
         var options = scrat.options,
             url = options.combo && options.comboPattern || options.urlPattern;
 
-        options.cache && each(ids, function (id, i) {
+        options.cache && each(ids, function(id, i) {
             if (fileType(id) === 'css') {
                 ids[i] = id + '.js';
             }
         });
 
         switch (type(url)) {
-        case 'string':
-            url = url.replace('%s', ids.join(','));
-            break;
-        case 'function':
-            url = url(ids);
-            break;
-        default:
-            url = ids.join(',');
+            case 'string':
+                url = url.replace('%s', ids.join(','));
+                break;
+            case 'function':
+                url = url(ids);
+                break;
+            default:
+                url = ids.join(',');
         }
 
         // The omission of `_hash=` might cause problem in wechat's webview
-        return url + (~url.indexOf('?') ? '&' : '?') + '_hash=' + options.hash;
+        // return url + (~url.indexOf('?') ? '&' : '?') + '_hash=' + options.hash;
+        return url + (~url.indexOf('?') ? '&' : '?') + 'max_age=' + options.max_age;
     };
 
     /**
@@ -449,7 +465,7 @@
      */
     function require(name) {
         var id = scrat.alias(name),
-            module = scrat.get(id);
+            module = scrat.get(name);
 
         if (fileType(id) !== 'js') return;
         if (!module) {
@@ -471,7 +487,9 @@
     }
 
     // Mix scrat's prototype to require
-    each(proto, function (m, k) { require[k] = m; });
+    each(proto, function(m, k) {
+        require[k] = m;
+    });
 
     /**
      * Parse CSS module
@@ -479,7 +497,7 @@
      */
     function requireCSS(name) {
         var id = scrat.alias(name),
-            module = scrat.get(id);
+            module = scrat.get(name);
 
         if (fileType(id) !== 'css') return;
         if (!module) throw new Error('failed to require "' + name + '"');
@@ -531,9 +549,10 @@
     }
 
     var TYPE_RE = /\.(js|css)(?=[?&,]|$)/i;
+
     function fileType(str) {
         var ext = 'js';
-        str.replace(TYPE_RE, function (m, $1) {
+        str.replace(TYPE_RE, function(m, $1) {
             ext = $1;
         });
         if (ext !== 'js' && ext !== 'css') ext = 'unknown';
@@ -541,12 +560,13 @@
     }
 
     var _modCache;
+
     function debug() {
         var flag = (global.localStorage || {}).debug,
             args = slice.call(arguments),
             style = 'color: #bada55',
             mod = args.shift(),
-            re = new RegExp(mod.replace(/[.\/\\]/g, function (m) {
+            re = new RegExp(mod.replace(/[.\/\\]/g, function(m) {
                 return '\\' + m;
             }));
         mod = '%c' + mod;
